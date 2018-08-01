@@ -1,3 +1,4 @@
+-- This query pulls in a cohort view for customers who churned since 2014 (can filter on year/month) by plan and product offering. 
 select
 	  customer_year,
 	  first_month,
@@ -20,6 +21,7 @@ select
 	  sum(case when months_to_churn = 11 then 1 else 0 end) as churned_month_11,
 	  sum(case when months_to_churn = 12 then 1 else 0 end) as churned_month_12
 from ( 
+	-- This subquery pulls in all customers, churn indicator key and their months to churn (if any). 
 	select
 		  crm_id,
 		  product,
