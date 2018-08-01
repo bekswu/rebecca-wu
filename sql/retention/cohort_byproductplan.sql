@@ -52,7 +52,7 @@ from (
 			  sum(delta_mrr) as delta_mrr 
 		from (
 			select 
-				-- at the CRM, Product, Plan level
+			-- at the CRM, Product, Plan level
     			c.crm_account_id as crm_account_id, 
     			p.product_line as product,
     			p.product_offering as plan,
