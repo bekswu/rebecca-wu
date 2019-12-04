@@ -63,8 +63,7 @@ agent_info as (
 		num_agents,
 		num_agents/num_admins as agent_to_admin_ratio,
 		num_light_agents
-	from `edw-prod-153420.pdw.roles` r 
-	--join accounts a on a.account_id = r.account_id 
+	from `edw-prod-153420.pdw.roles` r  
 	where r.run_at = (select max(run_at) from `edw-prod-153420.pdw.roles`)
 	and r.account_id in (select distinct account_id from accounts)
 ),
@@ -262,37 +261,8 @@ guide_accounts as (
 		g.num_hc_enabled AS guide_num_hc_enabled,
 		g.num_hc_restricted AS guide_num_hc_restricted,
 		g.content_cues_activated as guide_content_cues_activated_flag
-		--IF(kc.total_events_28 > 0,1,0) as guide_knowledge_capture_flag
 	from pdw.guide_accounts g 
-	/*join accounts a on g.account_id = a.account_id 
-	left join (
-		select 
-			account_id,
-			run_at, 
-			MAX(total_events_28) AS total_events_28
-		from `edw-prod-153420.pdw.hc_knowledge_capture` kc 
-		group by 1,2
-	) kc on (kc.account_id = a.account_id and a.latest_run_at = kc.run_at)
-	*/
 	where g.account_id is not null	
-),
-
-voice_accounts as (
-	select 
-		v.account_id,
-		v.is_trial AS talk_active_trial_flag,
-		v.derived_trial_start_date AS talk_trial_start_date,
-		v.trial_end_date AS talk_trial_end_date,
-		v.num_days_in_trial AS talk_num_days_in_trial,
-		v.plan_name AS talk_plan_name,
-		v.derived_voice_account_type AS talk_derived_account_type,
-		v.win_date AS talk_win_date,
-		v.has_voice_subscription AS has_talk_subscription,
-		v.is_active AS talk_is_active,
-		v.churn_date AS talk_churn_date,
-		v.is_active AS talk_active_flag,
-		v.plan_name_at_win AS talk_plan_name_at_win
-	from pdw.redshift_voice_account v 
 ),
 
 shift as (
@@ -330,7 +300,7 @@ crm as (
 	group by 1,2,3,4,5
 )
 
-select
+select distinct 
 	a.*,
 	crm.company,
 	crm.sfdc_account_country,
@@ -421,18 +391,18 @@ select
 	IF(kc.total_events_28 > 0,1,0) as guide_knowledge_capture_flag,
 	-- talk fields
 	IF (a.account_id=v.account_id,'1','0') AS talk_product_flag, 
-	talk_active_trial_flag,
-	talk_trial_start_date,
-	talk_trial_end_date,
-	talk_num_days_in_trial,
-	talk_plan_name,
-	talk_derived_account_type,
-	talk_win_date,
-	has_talk_subscription,
-	talk_is_active,
-	talk_churn_date,
-	talk_active_flag,
-	talk_plan_name_at_win,
+	v.is_trial AS talk_active_trial_flag,
+	v.derived_trial_start_date AS talk_trial_start_date,
+	v.trial_end_date AS talk_trial_end_date,
+	v.num_days_in_trial AS talk_num_days_in_trial,
+	v.plan_name AS talk_plan_name,
+	v.derived_voice_account_type AS talk_derived_account_type,
+	v.win_date AS talk_win_date,
+	v.has_voice_subscription AS has_talk_subscription,
+	v.is_active AS talk_is_active,
+	v.churn_date AS talk_churn_date,
+	v.is_active AS talk_active_flag,
+	v.plan_name_at_win AS talk_plan_name_at_win,
 	plan_shift_model_plan,  
 	plan_shift_probability,
 	no_plan_shift_probability,
@@ -440,13 +410,13 @@ select
 	churn_health_score, 
 	churn_model_plan
 from accounts a 
-left join agent_info ai on ai.account_id = a.account_id 
-left join answer_bot ab on ab.account_id = a.account_id 
-left join explore_accounts e on e.account_id = a.account_id -- 47.2S
 left join combo_metrics cm on cm.account_id = a.account_id 
 left join chat_accounts c on c.zendesk_account_id = a.account_id 
 left join guide_accounts g on g.account_id = a.account_id 
-left join voice_accounts v on v.account_id = a.account_id 
+left join pdw.redshift_voice_account v on (v.account_id = a.account_id and v.run_at = a.latest_run_at)
+left join agent_info ai on ai.account_id = a.account_id 
+left join answer_bot ab on ab.account_id = a.account_id 
+left join explore_accounts e on e.account_id = a.account_id -- 47.2S
 left join shift s on cast(s.zendesk_account_id as int64) = a.account_id 
 left join churn_prob cp on cp.crm_account_id = a.sfdc_crm_id 
 left join crm on crm.id = a.sfdc_crm_id
@@ -459,4 +429,4 @@ left join (
 	from `edw-prod-153420.pdw.hc_knowledge_capture` kc 
 	group by 1,2
 ) kc on (kc.account_id = a.account_id and a.latest_run_at = kc.run_at)
-order by a.account_id
+order by a.account_id 
