@@ -81,7 +81,7 @@ answer_bot as (
 		ab.boosted_resolutions AS answer_bot_boosted_resolutions,
 		ab.boost_expires_at AS answer_bot_boost_expires_at
 	from `edw-prod-153420.pdw.answer_bot_accounts`  ab
-	join accounts a on a.account_id = ab.account_id and a.latest_run_at = ab.run_at
+	--join accounts a on a.account_id = ab.account_id and a.latest_run_at = ab.run_at
 ),
 
 explore_accounts as (
@@ -120,64 +120,32 @@ combo_metrics as (
 	where CAST(SAFE_CAST(zacct.zd_id__c as FLOAT64) AS INT64) in (select distinct account_id from accounts)
 ),
 
-chat_accounts as ( -- 52.5S; 14GB
-	select 
-		i.zendesk_account_id,
-		i.voltron_id,
-		i.zopim_number,
-		coalesce(v2.conversations, c2.conversations) as chat_conversations_in_last_day,
-		c3.chat_subdomain,
-		c3.chat_instance_created_date,
-		c3.chat_derived_account_type,
-		c3.chat_win_date,
-		c3.chat_churn_date,
-		chat_cancellation_date,
-		chat_use_case,
-		chat_plan_name,
-		chat_status,
-		chat_phase,
-		chat_max_agents,
-		chat_enabled_agent_count,
-		chat_enabled_triggers,
-		chat_web_widget_embedded_date,
-		chat_web_widget_embedded_flag,
-		v3.forms_pre_chat_form_required as chat_prechat_form_flag, 
-		COALESCE(v3.offline_form_facebook,v4.offline_form_facebook) as chat_offline_form_facebook_flag,
-		COALESCE(v3.offline_form_twitter,v4.offline_form_twitter) as chat_offline_form_twitter_flag, 
-		COALESCE(v3.chat_request_form,v4.chat_request_form) as chat_request_form_flag, 
-		COALESCE(v3.routing_skill,v4.routing_skill)  as chat_skill_routing_flag, 
-		COALESCE(v3.operating_hours,v4.operating_hours) as chat_operating_hours_flag, 
-		COALESCE(v3.chat_button_hide_when_offline, v4.chat_button_hide_when_offline) as chat_offline_form_flag
-	from pdw.instances_by_win_and_churn_dates i 
-	left join (
-		select v.*
-		from (
-			select 
-				v.account_id,
-				conversations, 
-				RANK()OVER(PARTITION BY v.account_id ORDER BY timestamp DESC) as row
-			from  `edw-prod-153420.chat_data.voltron_account_stats` v
-			join `pdw.instances_by_win_and_churn_dates` i on i.voltron_id = v.account_id
-		) v
-		where v.row = 1 
-	) v2 on v2.account_id = i.voltron_id 
-	left join (
-		select c.*
-		from (
-			select 
-				c.account_id,
-				conversations, 
-				RANK()OVER(PARTITION BY c.account_id ORDER BY timestamp DESC) as row
-			from  `edw-prod-153420.chat_data.account_stats` c
-			join `pdw.instances_by_win_and_churn_dates` i on i.zopim_number = c.account_id
-		) c
-		where c.row = 1 
-	) c2 on i.zopim_number = c2.account_id
-	left join  (	
-		select c.*
+chat_accounts as (
+select 
+		c2.*,
+		coalesce(v2.conversations, c3.conversations) as chat_conversations_in_last_day,
+		c2.forms_pre_chat_form_required as chat_prechat_form_flag, 
+		COALESCE(c2.offline_form_facebook,c3.offline_form_facebook) as chat_offline_form_facebook_flag,
+		COALESCE(c2.offline_form_twitter,c3.offline_form_twitter) as chat_offline_form_twitter_flag, 
+		COALESCE(c2.chat_request_form,c3.chat_request_form) as chat_request_form_flag, 
+		COALESCE(c2.routing_skill,c3.routing_skill)  as chat_skill_routing_flag, 
+		COALESCE(c2.operating_hours,c3.operating_hours) as chat_operating_hours_flag, 
+		COALESCE(c2.chat_button_hide_when_offline, c3.chat_button_hide_when_offline) as chat_offline_form_flag
+	from (
+		select 
+			c.*,
+			forms_pre_chat_form_required, 
+			offline_form_facebook, 
+			offline_form_twitter, 
+			chat_request_form, 
+			routing_skill , 
+			operating_hours, 
+			chat_button_hide_when_offline 
 		from (
 			select 
 				c.zendesk_id,
+				c.voltron_id,
+				c.zopimnumber,
 				c.subdomain AS chat_subdomain,
 				c.create_date AS chat_instance_created_date,
 				c.derived_chat_account_type AS chat_derived_account_type,
@@ -190,7 +158,7 @@ chat_accounts as ( -- 52.5S; 14GB
 				c.phase AS chat_phase,
 				c.max_agents AS chat_max_agents,
 				c.enabled_agent_count AS chat_enabled_agent_count,
-				c.enabled_trigger_count AS chat_enabled_triggers, --New Field in Q2
+				c.enabled_trigger_count AS chat_enabled_triggers, 
 				c.embedded_timestamp AS chat_web_widget_embedded_date,
 				CASE WHEN c.embedded_timestamp is null THEN 'not embedded' --updated source table in Q2
 				WHEN c.embedded_timestamp is not null THEN 'embedded' -- updated source table in Q2
@@ -198,48 +166,78 @@ chat_accounts as ( -- 52.5S; 14GB
 				RANK()OVER(PARTITION BY c.zendesk_id ORDER BY create_date DESC) as row
 			from  `edw-prod-153420.pdw.chat_accounts` c
 			) c
-			where c.row = 1 
-	) c3 on c3.zendesk_id = i.zendesk_account_id
-	left join (
-		select v.*
-		from (
-			select 
-				id, 
-				run_at,
-				forms_pre_chat_form_required, 
-				offline_form_facebook, 
-				offline_form_twitter, 
-				chat_request_form, 
-				routing_skill , 
-				operating_hours, 
-				chat_button_hide_when_offline, 
-				RANK()OVER(PARTITION BY id ORDER BY create_date DESC) as row
+		left join (
+			select v.*
+			from (
+				select 
+					id, 
+					run_at,
+					forms_pre_chat_form_required, 
+					offline_form_facebook, 
+					offline_form_twitter, 
+					chat_request_form, 
+					routing_skill , 
+					operating_hours, 
+					chat_button_hide_when_offline, 
+					RANK()OVER(PARTITION BY id ORDER BY create_date DESC) as row
 			from `zopim.com:dynamic-density-326.chat_daily.voltron_edw_accounts` v
 			where v.run_at = (select max(run_at) from `zopim.com:dynamic-density-326.chat_daily.voltron_edw_accounts`) ## why do we need this?
 		) v
 		where v.row = 1 
-	) v3 on i.zendesk_account_id = v3.id
+		) v2 on c.zendesk_id = v2.id
+		where c.row = 1 
+	) c2
 	left join (
-		select v3.*
+		select v.*
 		from (
 			select 
-				id, 
-				run_at,
-				forms_pre_chat_form_required, 
-				offline_form_facebook, 
-				offline_form_twitter, 
-				chat_request_form, 
-				routing_skill , 
-				operating_hours, 
-				chat_button_hide_when_offline, 
-				RANK()OVER(PARTITION BY id ORDER BY create_date DESC) as row
-			from `zopim.com:dynamic-density-326.chat_daily.voltron_edw_accounts`
-		) v3
-		where v3.row = 1 
-	) v4 on i.zopim_number = v4.id
-	where (voltron_id is not null or zopim_number is not null or c3.zendesk_id is not null)
-),
-
+				v.account_id,
+				conversations, 
+				RANK()OVER(PARTITION BY v.account_id ORDER BY timestamp DESC) as row
+			from  `edw-prod-153420.chat_data.voltron_account_stats` v
+		) v
+		where v.row = 1 
+	) v2 on v2.account_id = c2.voltron_id 
+	left join (
+		select 
+			c.*,
+			forms_pre_chat_form_required, 
+			offline_form_facebook, 
+			offline_form_twitter, 
+			chat_request_form, 
+			routing_skill , 
+			operating_hours, 
+			chat_button_hide_when_offline
+		from (
+			select 
+				c.account_id,
+				conversations, 
+				RANK()OVER(PARTITION BY c.account_id ORDER BY timestamp DESC) as row
+			from  `edw-prod-153420.chat_data.account_stats` c
+		) c
+		left join (
+			select v.*
+			from (
+				select 
+					id, 
+					run_at,
+					forms_pre_chat_form_required, 
+					offline_form_facebook, 
+					offline_form_twitter, 
+					chat_request_form, 
+					routing_skill , 
+					operating_hours, 
+					chat_button_hide_when_offline, 
+					RANK()OVER(PARTITION BY id ORDER BY create_date DESC) as row
+				from `zopim.com:dynamic-density-326.chat_daily.voltron_edw_accounts`
+			) v
+			where v.row = 1 
+		) v4 on c.account_id = v4.id
+		where c.row = 1 
+	) c3 on c2.zopimnumber = c3.account_id
+	where (voltron_id is not null and zopimnumber is not null)
+  ),
+  
 guide_accounts as (
 	select 
 		g.account_id,
@@ -300,6 +298,7 @@ crm as (
 	group by 1,2,3,4,5
 )
 
+-- Destination table: marketing_analyst_general.rw_mpcdo_test 
 select distinct 
 	a.*,
 	crm.company,
@@ -309,7 +308,7 @@ select distinct
 	crm.sales_model,
 	g.account_id AS guide_account_id,
 	v.account_id AS talk_account_id,
-	c.zendesk_account_id AS chat_id,
+	c.zendesk_id AS chat_id,
 	pql.score as support_pql_score,
 	ai.num_users,
 	ai.num_admins,
@@ -345,8 +344,8 @@ select distinct
 	talk_total_agents,
 	support_last_login,
 	-- chat fields
-	IF(a.account_id=c.zendesk_account_id,'1','0') AS chat_product_flag, 
-	c.chat_conversations_in_last_day,
+	IF(a.account_id=c.zendesk_id,'1','0') AS chat_product_flag, 
+	--c2.chat_conversations_in_last_day,
 	c.chat_subdomain,
 	c.chat_instance_created_date,
 	c.chat_derived_account_type,
@@ -369,7 +368,7 @@ select distinct
 	c.chat_operating_hours_flag,
 	c.chat_offline_form_flag,
 	-- guide fields
-	IF (a.account_id=g.account_id,'1','0') AS guide_product_flag, 
+	IF(a.account_id=g.account_id,'1','0') AS guide_product_flag, 
 	g.guide_active_trial_flag,
 	g.guide_trial_start_date,
 	g.guide_trial_end_date,
@@ -410,8 +409,8 @@ select distinct
 	churn_health_score, 
 	churn_model_plan
 from accounts a 
-left join combo_metrics cm on cm.account_id = a.account_id 
-left join chat_accounts c on c.zendesk_account_id = a.account_id 
+left join combo_metrics cm on cm.account_id = a.account_id  
+left join chat_accounts c on c.zendesk_id = a.account_id 
 left join guide_accounts g on g.account_id = a.account_id 
 left join pdw.redshift_voice_account v on (v.account_id = a.account_id and v.run_at = a.latest_run_at)
 left join agent_info ai on ai.account_id = a.account_id 
@@ -429,4 +428,5 @@ left join (
 	from `edw-prod-153420.pdw.hc_knowledge_capture` kc 
 	group by 1,2
 ) kc on (kc.account_id = a.account_id and a.latest_run_at = kc.run_at)
+--where a.account_id = 485069 
 order by a.account_id 
