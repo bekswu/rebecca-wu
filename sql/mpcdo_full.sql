@@ -61,7 +61,6 @@ agent_info as (
 		num_users,
 		num_admins, 
 		num_agents,
-		num_agents/num_admins as agent_to_admin_ratio,
 		num_light_agents
 	from `edw-prod-153420.pdw.roles` r  
 	where r.run_at = (select max(run_at) from `edw-prod-153420.pdw.roles`)
